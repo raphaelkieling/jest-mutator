@@ -1,13 +1,12 @@
 import * as morph from "ts-morph";
-import * as tsNode from "ts-node";
-import { dynamicImport } from "tsimportlib";
-
+import { randomUUID } from "node:crypto";
 import logger from "./logger";
 
 interface MutationCombination {
   type: morph.SyntaxKind;
+  source: morph.SourceFile;
   node: morph.Node;
-  operator: string;
+  execute: () => void;
 }
 
 interface MutatorParams {
@@ -54,21 +53,27 @@ export class Mutator {
   // TODO: add max combinations to avoid memory / performance issues
   // TODO: clone and change left / right and add more operators
   // TODO: create random modifications instead of generate thousands of combinations, maybe a class prop to allow it?
-  private createMutantCombinations(nodes: morph.Node[]): any[] {
+  private createMutantCombinations(source: morph.SourceFile, nodes: morph.Node[]): any[] {
     nodes.forEach((node) => {
       if(node.getKind() === morph.SyntaxKind.BinaryExpression) {
-        const binaryExpression = node
+        const binaryExpression = node as morph.BinaryExpression
 
         this.mutationCombinations.push({
           type: morph.SyntaxKind.BinaryExpression,
-          node: binaryExpression,
-          operator: "*",
+          source,
+          node,
+          execute: () => {
+            binaryExpression.getOperatorToken().replaceWithText("*")
+          }
         })
 
         this.mutationCombinations.push({
           type: morph.SyntaxKind.BinaryExpression,
-          node: binaryExpression,
-          operator: "/",
+          source,
+          node,
+          execute: () => {
+            binaryExpression.getOperatorToken().replaceWithText("/")
+          }
         })
       }
     })
@@ -78,31 +83,52 @@ export class Mutator {
 
   getMutationCombinations(payload: string): MutationCombination[] {
     // Creating the project
-    const project = new morph.Project()
-    const source = project.createSourceFile("src/test.ts", payload, { overwrite: true })
+    const project = new morph.Project({
+      compilerOptions:{
+        allowJs: true,
+        noEmitOnError: true,
+        strictNullChecks: true,
+        strictFunctionTypes: true,
+        strictBindCallApply: true,
+        strictPropertyInitialization: true,
+        moduleResolution: morph.ModuleResolutionKind.Classic,
+        target: morph.ScriptTarget.ES5,
+        sourceMap: true,
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+        inlineSources: true,
+       }
+    })
+    const source = project.createSourceFile(`${randomUUID()}.ts`, payload, { scriptKind: morph.ScriptKind.JS  })
+
     // Compute all the mutation points to further mutation
     const mutationPoints = this.getAllSourceMutationPoints(source)
 
-    return this.createMutantCombinations(mutationPoints)
     // Create mutations without apply in the code itself
-
-    // // TODO: compile the file in the runtime?
-
-    // source.saveSync()
-    // const register = tsNode.register({
-    //   transpileOnly: true,
-    // })
-    // const a = register.compile(source.getText(), source.getFilePath())
-    // register.reql
-    // console.log(a)
-
-    // const dynamicImport = new Function('specifier', 'return import(specifier)');
-    // const dynamicallyLoadedEsmModule = await dynamicImport(source.getFilePath());
-
-    // return dynamicallyLoadedEsmModule
+    return this.createMutantCombinations(source, mutationPoints)
   }
 
-  mutate(combination: MutationCombination): any {
-    console.log(combination)
+  mutateFunction(combination: MutationCombination, fn: string): string {
+    logger.debug("mutating combination", combination.type)
+    combination.execute()
+
+    const node = combination
+      .source
+      .getChildrenOfKind(morph.SyntaxKind.FunctionDeclaration)
+      .find((node)=> node.getName() === fn)
+
+    if(node === undefined) throw new Error("Function not found")
+
+    // if(node.isDefaultExport()) {
+    //   node.setIsDefaultExport(false);
+    //   node.setIsExported(true);
+    // }
+
+    // if(node.isExported()) {
+    //   node.setIsDefaultExport(true);
+    //   node.setIsExported(false);
+    // }
+
+    return node.getText()
   }
 }

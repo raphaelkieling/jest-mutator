@@ -18,7 +18,14 @@ export function divide(a: number, b: number): number {
 }
 
 export class Calculate {
-  add(a: number, b: number): number {
+  a: number = 0
+
+  sum(a: number, b: number): number {
     return a + b;
+  }
+
+  div(a: number, b: number): number {
+    this.a = a
+    return this.a / b;
   }
 }
